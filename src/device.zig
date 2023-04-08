@@ -68,7 +68,7 @@ pub const SyncDevice = struct {
         allocator.free(device.base);
     }
 
-    pub fn update(device: *SyncDevice, row: u32, cb: *const sync.SyncCallbacks, cb_param: [*]void) !void {
+    pub fn update(device: *SyncDevice, row: u32, cb: *const sync.SyncCallbacks, cb_param: *anyopaque) !void {
         var socket = device.socket.?;
         var socketSet = device.socketSet.?;
         errdefer socket.close();
@@ -321,10 +321,11 @@ fn handleSetKeyCmd(device: *SyncDevice) !void {
     var row = try reader.readIntBig(u32);
     var floatAsInt = try reader.readIntBig(u32);
     var t = try reader.readIntBig(u8);
+    var floatVal = @bitCast(f32, floatAsInt);
 
     var key: track.TrackKey = .{
         .row = row,
-        .value = @ptrCast(*f32, &floatAsInt).*, // TODO @bitCast
+        .value = floatVal,
         .type = @intToEnum(track.KeyType, t),
     };
 

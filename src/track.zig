@@ -24,12 +24,17 @@ pub const SyncTrack = struct {
 };
 
 inline fn keyIndexFloor(track: *const SyncTrack, row: u32) u32 {
-    return syncFindKey(track, row).index;
+    var result = syncFindKey(track, row);
+    if (result.found) {
+        return result.index;
+    } else {
+        return result.index - 1;
+    }
 }
 
 //#ifndef SYNC_PLAYER
 inline fn isKeyFrame(track: *const SyncTrack, row: u32) bool {
-    return syncFindKey(track, row) >= 0;
+    return syncFindKey(track, row).found;
 }
 
 //#endif /* !defined(SYNC_PLAYER) */
@@ -42,7 +47,7 @@ fn keyLinear(keys: [2]TrackKey, row: f64) f64 {
 
 fn keySmooth(keys: [2]TrackKey, row: f64) f64 {
     var t = (row - @intToFloat(f64, keys[0].row)) / @intToFloat(f64, keys[1].row - keys[0].row);
-    t = t * t * (3 - 2 * t);
+    t = t * t * (3.0 - 2.0 * t);
     return keys[0].value + (keys[1].value - keys[0].value) * t;
 }
 
@@ -58,14 +63,14 @@ pub fn syncGetVal(track: *const SyncTrack, row: f64) f64 {
         return 0.0;
     }
 
-    var irow = @floatToInt(u32, math.floor(row));
+    var irow = @floatToInt(u32, row);
     var idx = keyIndexFloor(track, irow);
 
     // at the edges, return the first/last value
     if (idx < 0) {
         return track.keys.items[0].value;
     }
-    if (idx > track.keys.items.len - 2) {
+    if (track.keys.items[idx..].len < 2) {
         return track.keys.items[track.keys.items.len - 1].value;
     }
 
