@@ -324,7 +324,7 @@ fn handleSetKeyCmd(device: *SyncDevice) !void {
 
     var key: track.TrackKey = .{
         .row = row,
-        .value = @ptrCast(*f32, &floatAsInt).*,
+        .value = @ptrCast(*f32, &floatAsInt).*, // TODO @bitCast
         .type = @intToEnum(track.KeyType, t),
     };
 

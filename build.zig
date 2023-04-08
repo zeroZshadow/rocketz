@@ -4,9 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const zignetwork = b.createModule(.{
-        .source_file = .{ .path = "external/zig-network/network.zig" },
-    });
+    const network_dep = b.dependency("network", .{});
 
     const exe = b.addExecutable(.{
         .name = "zig-rocket",
@@ -15,7 +13,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe.addModule("network", zignetwork);
+    exe.addModule("network", network_dep.module("network"));
 
     exe.install();
 
