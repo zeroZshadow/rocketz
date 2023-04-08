@@ -5,6 +5,18 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const network_dep = b.dependency("network", .{});
+
+    const rocket = b.addModule("rocket", .{
+        .source_file = .{ .path = "external/rocket/rocket.zig" },
+        .dependencies = &.{
+            .{
+                .name = "network",
+                .module = network_dep.module("network"),
+            },
+        },
+    });
+
     const exe = b.addExecutable(.{
         .name = "zig-rocket",
         .root_source_file = .{ .path = "src/main.zig" },
@@ -12,7 +24,6 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    const network_dep = b.dependency("network", .{});
     exe.addModule("network", network_dep.module("network"));
 
     const sdk = sdl_sdk.init(b, null);
@@ -32,7 +43,7 @@ pub fn build(b: *std.Build) void {
     b.installLibFile("external/bass/libs/x86_64/libbass.so", "libbass.so");
     exe.linkSystemLibrary("bass");
 
-    exe.addAnonymousModule("rocket", .{ .source_file = .{ .path = "external/rocket/rocket.zig" } });
+    exe.addModule("rocket", rocket);
 
     exe.install();
 

@@ -4,10 +4,7 @@ const math = std.math;
 const assert = std.debug.assert;
 const network = @import("network");
 
-pub const SyncIOCallbacks = struct {
-    pub const OpenError = error{OpenError};
-    pub const ReadError = error{ReadError};
-
+pub const IOCallbacks = struct {
     //    open: *const fn (file_path: []const u8) OpenError!*anyopaque,
     //  read: *const fn (handle: *anyopaque, bytes: []u8) ReadError!void,
     //close: *const fn (handle: *anyopaque) void,
@@ -19,14 +16,14 @@ pub const SyncCallbacks = struct {
     isPlaying: *const fn (ptr: *anyopaque) bool,
 };
 
-pub fn SyncDevice(comptime callbacks: SyncIOCallbacks) type {
+pub fn SyncDevice(comptime callbacks: IOCallbacks) type {
     return struct {
         const Self = @This();
         const ioCallbacks = callbacks;
 
         allocator: std.mem.Allocator,
         base: []const u8,
-        tracks: []*SyncTrack,
+        tracks: []*Track,
 
         //#ifndef SYNC_PLAYER
         row: u32,
@@ -110,7 +107,7 @@ pub fn SyncDevice(comptime callbacks: SyncIOCallbacks) type {
             }
         }
 
-        pub fn getTrack(device: *Self, name: []const u8) !*const SyncTrack {
+        pub fn getTrack(device: *Self, name: []const u8) !*const Track {
             if (findTrack(device, name)) |idx| {
                 return device.tracks[idx];
             } else |err| switch (err) {
@@ -120,11 +117,9 @@ pub fn SyncDevice(comptime callbacks: SyncIOCallbacks) type {
 
             var t = try createTrack(device, name);
 
-            // #ifndef SYNC_PLAYER
             if (device.socket) |_| {
                 try fetchTrackData(device, t);
             } else {
-                // #endif
                 try readTrackData(device, t);
             }
 
@@ -141,7 +136,7 @@ pub fn SyncDevice(comptime callbacks: SyncIOCallbacks) type {
             return error.NotFound;
         }
 
-        fn readTrackData(d: *Self, t: *SyncTrack) !void {
+        fn readTrackData(d: *Self, t: *Track) !void {
             _ = t;
             _ = d;
             // var callbacks = d.ioCallbacks.?;
@@ -176,7 +171,7 @@ pub fn SyncDevice(comptime callbacks: SyncIOCallbacks) type {
             }
         }
 
-        fn fetchTrackData(device: *Self, t: *SyncTrack) !void {
+        fn fetchTrackData(device: *Self, t: *Track) !void {
             if (device.socket) |socket| {
                 var writer = socket.writer();
                 try writer.writeByte(@enumToInt(Commands.GET_TRACK));
@@ -192,13 +187,13 @@ pub fn SyncDevice(comptime callbacks: SyncIOCallbacks) type {
             var trackIdx = try reader.readIntBig(u32);
             var row = try reader.readIntBig(u32);
             var floatAsInt = try reader.readIntBig(u32);
-            var t = try reader.readIntBig(u8);
+            var keyType = try reader.readIntBig(u8);
             var floatVal = @bitCast(f32, floatAsInt);
 
             var key: TrackKey = .{
                 .row = row,
                 .value = floatVal,
-                .type = @intToEnum(KeyType, t),
+                .type = @intToEnum(KeyType, keyType),
             };
 
             if (trackIdx >= device.tracks.len) {
@@ -239,6 +234,10 @@ pub fn SyncDevice(comptime callbacks: SyncIOCallbacks) type {
                 .write = false,
             });
 
+            // Handhshake
+            const clientGreet: []const u8 = "hello, synctracker!";
+            const serverGreet: []const u8 = "hello, demo!";
+
             var writer = device.socket.?.writer();
             try writer.writeAll(clientGreet);
 
@@ -261,14 +260,14 @@ pub fn SyncDevice(comptime callbacks: SyncIOCallbacks) type {
             }
         }
 
-        fn createTrack(d: *Self, name: []const u8) !*SyncTrack {
+        fn createTrack(d: *Self, name: []const u8) !*Track {
             var allocator = d.allocator;
 
-            var t = try allocator.create(SyncTrack);
+            var t = try allocator.create(Track);
             errdefer allocator.destroy(t);
 
             t.name = try allocator.dupe(u8, name);
-            t.keys = SyncTrack.Keys.init(d.allocator);
+            t.keys = Track.Keys.init(d.allocator);
 
             const newLength = d.tracks.len + 1;
             d.tracks = try allocator.realloc(d.tracks, newLength);
@@ -328,9 +327,6 @@ fn syncTrackPath(allocator: std.mem.Allocator, base: []const u8, name: []const u
 
 //#ifndef SYNC_PLAYER
 
-const clientGreet: []const u8 = "hello, synctracker!";
-const serverGreet: []const u8 = "hello, demo!";
-
 const Commands = enum(u8) {
     SET_KEY = 0,
     DELETE_KEY = 1,
@@ -373,7 +369,7 @@ fn createLeadingDirs(path: []const u8) !void {
     // 	return 0;
 }
 
-fn saveTrack(t: *const SyncTrack, path: []const u8) !void {
+fn saveTrack(t: *const Track, path: []const u8) !void {
     _ = path;
     _ = t;
     // 	int i;
@@ -411,13 +407,13 @@ pub const TrackKey = struct {
     type: KeyType,
 };
 
-pub const SyncTrack = struct {
+pub const Track = struct {
     const Keys = std.ArrayList(TrackKey);
 
     name: []u8,
     keys: Keys,
 
-    inline fn keyIndexFloor(track: *const SyncTrack, row: u32) u32 {
+    inline fn keyIndexFloor(track: *const Track, row: u32) u32 {
         var result = track.findKey(row);
         if (result.found) {
             return result.index;
@@ -427,7 +423,7 @@ pub const SyncTrack = struct {
     }
 
     //#ifndef SYNC_PLAYER
-    inline fn isKeyFrame(track: *const SyncTrack, row: u32) bool {
+    inline fn isKeyFrame(track: *const Track, row: u32) bool {
         return track.findKey(row).found;
     }
 
@@ -451,7 +447,7 @@ pub const SyncTrack = struct {
         return keys[0].value + (keys[1].value - keys[0].value) * t;
     }
 
-    pub fn getValue(track: *const SyncTrack, row: f64) f64 {
+    pub fn getValue(track: *const Track, row: f64) f64 {
         // If we have no keys at all, return a constant 0
         if (track.keys.items.len == 0) {
             return 0.0;
@@ -477,7 +473,7 @@ pub const SyncTrack = struct {
         };
     }
 
-    pub fn findKey(t: *const SyncTrack, row: u32) struct { index: u32, found: bool } {
+    pub fn findKey(t: *const Track, row: u32) struct { index: u32, found: bool } {
         var lo = @as(usize, 0);
         var hi = t.keys.items.len;
 
@@ -500,7 +496,7 @@ pub const SyncTrack = struct {
     }
 
     //#ifndef SYNC_PLAYER
-    pub fn setKey(track: *SyncTrack, key: TrackKey) !void {
+    pub fn setKey(track: *Track, key: TrackKey) !void {
         const result = track.findKey(key.row);
         if (!result.found) {
             // no exact hit, we need to allocate a new key
@@ -510,7 +506,7 @@ pub const SyncTrack = struct {
         track.keys.items[result.index] = key;
     }
 
-    pub fn deleteKey(track: *SyncTrack, pos: u32) !void {
+    pub fn deleteKey(track: *Track, pos: u32) !void {
         var result = track.findKey(pos);
         assert(result.found);
 

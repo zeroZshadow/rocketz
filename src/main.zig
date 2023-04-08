@@ -58,7 +58,7 @@ pub fn main() !void {
     try sdl.init(.{
         .video = true,
         .events = true,
-        .audio = true,
+        .audio = false,
     });
     defer sdl.quit();
 
