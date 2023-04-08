@@ -1,7 +1,5 @@
 const std = @import("std");
-const track = @import("track.zig");
-const sync = @import("sync.zig");
-const device = @import("device.zig");
+const rocket = @import("rocket");
 const network = @import("network");
 const sdl = @import("sdl2");
 const bass = @import("bass");
@@ -10,7 +8,7 @@ const bpm: f32 = 150.0; // beats per minute
 const rpb: i32 = 8; // rows per beat
 const row_rate: f64 = (@as(f64, bpm) / 60.0) * @intToFloat(f32, rpb);
 
-const callbacks: sync.SyncCallbacks = .{
+const callbacks: rocket.SyncCallbacks = .{
     .pause = &pause,
     .setRow = &setRow,
     .isPlaying = &isPlaying,
@@ -94,18 +92,16 @@ pub fn main() !void {
     defer _ = bass.BASS_StreamFree(stream);
 
     // Rocket init
-    var rocket = try device.SyncDevice.init(allocator, "sync");
-    defer rocket.deinit();
-
-    try device.syncTcpConnect(&rocket, "localhost", 1338);
-    std.debug.print("Connected \n", .{});
+    var device = try rocket.SyncDevice(.{}).init(allocator, "sync");
+    defer device.deinit();
+    try device.connectTcp("localhost", 1338);
 
     // Start app
-    var clear_r = try rocket.getTrack("clear.r");
-    var clear_g = try rocket.getTrack("clear.g");
-    var clear_b = try rocket.getTrack("clear.b");
-    _ = try rocket.getTrack("camera:rot.y");
-    _ = try rocket.getTrack("camera:dist");
+    var clear_r = try device.getTrack("clear.r");
+    var clear_g = try device.getTrack("clear.g");
+    var clear_b = try device.getTrack("clear.b");
+    _ = try device.getTrack("camera:rot.y");
+    _ = try device.getTrack("camera:dist");
 
     _ = bass.BASS_Start();
     _ = bass.BASS_ChannelPlay(stream, 0);
@@ -119,15 +115,15 @@ pub fn main() !void {
         }
 
         var row = getRow(stream);
-        try rocket.update(
+        try device.update(
             @floatToInt(u32, row),
             &callbacks,
             @ptrCast(*anyopaque, &stream),
         );
 
-        const val_r = track.syncGetVal(clear_r, row);
-        const val_g = track.syncGetVal(clear_g, row);
-        const val_b = track.syncGetVal(clear_b, row);
+        const val_r = clear_r.getValue(row);
+        const val_g = clear_g.getValue(row);
+        const val_b = clear_b.getValue(row);
         const r = @floatToInt(u8, val_r * 255.0);
         const g = @floatToInt(u8, val_g * 255.0);
         const b = @floatToInt(u8, val_b * 255.0);

@@ -32,6 +32,8 @@ pub fn build(b: *std.Build) void {
     b.installLibFile("external/bass/libs/x86_64/libbass.so", "libbass.so");
     exe.linkSystemLibrary("bass");
 
+    exe.addAnonymousModule("rocket", .{ .source_file = .{ .path = "external/rocket/rocket.zig" } });
+
     exe.install();
 
     const run_cmd = exe.run();
