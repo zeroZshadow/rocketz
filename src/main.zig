@@ -104,7 +104,7 @@ pub fn main() !void {
     var clear_r = try rocket.getTrack("clear.r");
     var clear_g = try rocket.getTrack("clear.g");
     var clear_b = try rocket.getTrack("clear.b");
-    _ = try rocket.getTrack("camera:row.y");
+    _ = try rocket.getTrack("camera:rot.y");
     _ = try rocket.getTrack("camera:dist");
 
     _ = bass.BASS_Start();
