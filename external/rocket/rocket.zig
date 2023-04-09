@@ -4,30 +4,36 @@ const os = std.os;
 const math = std.math;
 const assert = std.debug.assert;
 
-fn IOCallbacksType(comptime readerType: type) type {
+pub fn IOCallbacks(comptime syncContextType: type, comptime readerType: type) type {
     return struct {
-        read: fn (name: []const u8, loadTrack: fn (reader: readerType) anyerror!void) void,
+        const Context = syncContextType;
+        const Reader = readerType;
+
+        open: fn (name: []const u8) Context,
+        close: fn (context: Context) void,
+        read: fn (context: Context) Reader,
     };
 }
 
-fn SyncCallbacksTType(comptime syncContextType: type) type {
+pub fn SyncCallbacks(comptime syncContextType: type) type {
     return struct {
-        pause: fn (context: syncContextType, flag: i32) void,
-        setRow: fn (context: syncContextType, row: u32) void,
-        isPlaying: fn (context: syncContextType) bool,
+        const Context = syncContextType;
+
+        pause: fn (context: Context, flag: i32) void,
+        setRow: fn (context: Context, row: u32) void,
+        isPlaying: fn (context: Context) bool,
     };
 }
 
 pub fn SyncDevice(
-    comptime syncContextType: type,
-    comptime callbacks: SyncCallbacksTType(syncContextType),
-    comptime ioReaderType: type,
-    comptime ioProvider: IOCallbacksType(ioReaderType),
+    comptime syncCallbacksType: type,
+    comptime callbacks: syncCallbacksType,
+    comptime ioCallbacksType: type,
+    comptime ioProvider: ioCallbacksType,
 ) type {
     return struct {
         const Self = @This();
-        const SyncContextType = syncContextType;
-        const IoReaderType = ioReaderType;
+
         const syncCallbacks = callbacks;
         const ioCallbacks = ioProvider;
 
@@ -41,15 +47,15 @@ pub fn SyncDevice(
         socketSet: ?network.SocketSet,
         //#endif
 
-        pub const SyncCallbacks = SyncCallbacksTType(syncContextType);
-        pub const IOCallbacks = IOCallbacksType(ioReaderType);
+        const SyncCallbacks = syncCallbacksType;
+        const IOCallbacks = ioCallbacksType;
 
         pub fn init(allocator: std.mem.Allocator, base: []const u8) !Self {
             if (base.len == 0 or base[0] == '/') {
                 return error.InvalidBaseName;
             }
 
-            var device = .{
+            const device = .{
                 .allocator = allocator,
                 .base = try pathEncode(allocator, base),
                 .tracks = &.{},
@@ -64,7 +70,7 @@ pub fn SyncDevice(
         }
 
         pub fn deinit(device: *Self) void {
-            var allocator = device.allocator;
+            const allocator = device.allocator;
 
             for (device.tracks) |t| {
                 allocator.free(t.name);
@@ -85,7 +91,11 @@ pub fn SyncDevice(
             allocator.free(device.base);
         }
 
-        pub fn update(device: *Self, row: u32, cb_param: SyncContextType) !void {
+        pub fn update(device: *Self, row: u32, cb_param: Self.SyncCallbacks.Context) !void {
+            if (device.socket == null) {
+                return;
+            }
+
             var socket = device.socket.?;
             var socketSet = device.socketSet.?;
             errdefer socket.close();
@@ -110,13 +120,11 @@ pub fn SyncDevice(
                 };
             }
 
-            if (syncCallbacks.isPlaying(cb_param)) {
-                if (device.row != row and device.socket != null) {
-                    var writer = socket.writer();
-                    try writer.writeByte(@enumToInt(Commands.SET_ROW));
-                    try writer.writeIntBig(u32, row);
-                    device.row = row;
-                }
+            if (syncCallbacks.isPlaying(cb_param) and device.row != row) {
+                var writer = socket.writer();
+                try writer.writeByte(@enumToInt(Commands.SET_ROW));
+                try writer.writeIntBig(u32, row);
+                device.row = row;
             }
         }
 
@@ -150,29 +158,25 @@ pub fn SyncDevice(
         }
 
         fn readTrackData(d: *Self, t: *Track) !void {
-            // var callbacks = d.ioCallbacks.?;
-
             const trackPath = try syncTrackPath(d.allocator, d.base, t.name);
             defer d.allocator.free(trackPath);
 
-            ioCallbacks.read(trackPath);
+            const context = ioCallbacks.open(trackPath);
+            defer ioCallbacks.close(context);
 
-            // var reader = try callbacks.open(trackPath);
+            var reader = ioCallbacks.read(context);
 
-            // var keyCount = try reader.readIntBig(u32);
-            // t.keys = try std.ArrayList(track.TrackKey).initCapacity(d.allocator, keyCount);
+            var keyCount = try reader.readIntBig(u32);
+            t.keys = try std.ArrayList(TrackKey).initCapacity(d.allocator, keyCount);
 
-            // for (0..keyCount) |idx| {
-            //     var key = track.TrackKey{
-            //         .row = try reader.readIntBig(u32),
-            //         .value = @bitCast(f32, try reader.readIntBig(u32)),
-            //         .type = try @intToEnum(track.KeyType, reader.readIntBig(u8)),
-            //     };
-            //     t.keys.insertAssumeCapacity(idx, key);
-            // }
-
-            // // close
-            // callbacks.close(reader);
+            for (0..keyCount) |idx| {
+                var key = TrackKey{
+                    .row = try reader.readIntBig(u32),
+                    .value = @bitCast(f32, try reader.readIntBig(u32)),
+                    .type = @intToEnum(KeyType, try reader.readIntBig(u8)),
+                };
+                t.keys.insertAssumeCapacity(idx, key);
+            }
         }
 
         pub fn syncSaveTracks(d: *const Self) !void {
@@ -350,60 +354,32 @@ const Commands = enum(u8) {
 
 // //#endif
 
-fn createLeadingDirs(path: []const u8) !void {
-    _ = path;
-    // 	char *pos, buf[FILENAME_MAX];
-
-    // 	strncpy(buf, path, sizeof(buf));
-    // 	buf[sizeof(buf) - 1] = '\0';
-    // 	pos = buf;
-
-    // 	while (1) {
-    // 		struct stat st;
-
-    // 		pos = strchr(pos, '/');
-    // 		if (!pos)
-    // 			break;
-    // 		*pos = '\0';
-
-    // 		/* does path exist, but isn't a dir? */
-    // 		if (!stat(buf, &st)) {
-    // 			if (!S_ISDIR(st.st_mode))
-    // 				return -1;
-    // 		} else {
-    // 			if (mkdir(buf, 0777))
-    // 				return -1;
-    // 		}
-
-    // 		*pos++ = '/';
-    // 	}
-
-    // 	return 0;
+fn createLeadingDirs(path: []const u8) !std.fs.Dir {
+    const cwd = std.fs.cwd();
+    if (std.fs.path.dirname(path)) |dirpath| {
+        return try cwd.makeOpenPath(dirpath, .{});
+    }
+    return cwd;
 }
 
 fn saveTrack(t: *const Track, path: []const u8) !void {
-    _ = path;
-    _ = t;
     // 	int i;
     // 	FILE *fp;
 
-    // 	if (create_leading_dirs(path))
-    // 		return -1;
+    //var dir = try createLeadingDirs(path);
+    //defer dir.close();
 
-    // 	fp = fopen(path, "wb");
-    // 	if (!fp)
-    // 		return -1;
+    const cwd = std.fs.cwd();
+    var file = try cwd.createFile(path, .{});
+    defer file.close();
+    var writer = file.writer();
 
-    // 	fwrite(&t->num_keys, sizeof(int), 1, fp);
-    // 	for (i = 0; i < (int)t->num_keys; ++i) {
-    // 		char type = (char)t->keys[i].type;
-    // 		fwrite(&t->keys[i].row, sizeof(int), 1, fp);
-    // 		fwrite(&t->keys[i].value, sizeof(float), 1, fp);
-    // 		fwrite(&type, sizeof(char), 1, fp);
-    // 	}
-
-    // 	fclose(fp);
-    // 	return 0;
+    try writer.writeIntBig(u32, @truncate(u32, t.keys.items.len));
+    for (t.keys.items) |key| {
+        try writer.writeIntBig(u32, key.row);
+        try writer.writeIntBig(u32, @bitCast(u32, key.value));
+        try writer.writeByte(@enumToInt(key.type));
+    }
 }
 
 pub const KeyType = enum(u8) {

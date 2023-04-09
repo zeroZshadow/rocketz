@@ -31,12 +31,17 @@ fn isPlaying(stream: u32) bool {
     return bass.BASS_ChannelIsActive(stream) == bass.BASS_ACTIVE_PLAYING;
 }
 
-fn readTrackFile(name: []const u8, comptime loadTrack: fn (reader: std.fs.File.Reader) anyerror!void) void {
-    var file = std.fs.openFileAbsolute(name, .{}) orelse @panic("FS FAiL");
-    defer file.close();
+fn openTrackFile(name: []const u8) std.fs.File {
+    const cwd = std.fs.cwd();
+    return cwd.openFile(name, .{}) catch @panic("FS FAiL");
+}
 
-    var reader = file.reader();
-    try loadTrack(reader);
+fn closeTrackFile(file: std.fs.File) void {
+    file.close();
+}
+
+fn readTrackFile(file: std.fs.File) std.fs.File.Reader {
+    return file.reader();
 }
 
 pub fn main() !void {
@@ -89,19 +94,21 @@ pub fn main() !void {
 
     // Rocket init
     var device = try rocket.SyncDevice(
-        u32,
+        rocket.SyncCallbacks(u32),
         .{
             .pause = pause,
             .setRow = setRow,
             .isPlaying = isPlaying,
         },
-        std.fs.File.Reader,
+        rocket.IOCallbacks(std.fs.File, std.fs.File.Reader),
         .{
+            .open = openTrackFile,
+            .close = closeTrackFile,
             .read = readTrackFile,
         },
     ).init(allocator, "sync");
     defer device.deinit();
-    try device.connectTcp("localhost", 1338);
+    //try device.connectTcp("localhost", 1338);
 
     // Start app
     var clear_r = try device.getTrack("clear.r");
