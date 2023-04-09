@@ -1,25 +1,35 @@
 const std = @import("std");
+const network = @import("network");
 const os = std.os;
 const math = std.math;
 const assert = std.debug.assert;
-const network = @import("network");
 
-pub const IOCallbacks = struct {
-    //    open: *const fn (file_path: []const u8) OpenError!*anyopaque,
-    //  read: *const fn (handle: *anyopaque, bytes: []u8) ReadError!void,
-    //close: *const fn (handle: *anyopaque) void,
-};
+fn IOCallbacksType(comptime readerType: type) type {
+    return struct {
+        read: fn (name: []const u8, loadTrack: fn (reader: readerType) anyerror!void) void,
+    };
+}
 
-pub const SyncCallbacks = struct {
-    pause: *const fn (ptr: *anyopaque, flag: i32) void,
-    setRow: *const fn (ptr: *anyopaque, row: u32) void,
-    isPlaying: *const fn (ptr: *anyopaque) bool,
-};
+fn SyncCallbacksTType(comptime syncContextType: type) type {
+    return struct {
+        pause: fn (context: syncContextType, flag: i32) void,
+        setRow: fn (context: syncContextType, row: u32) void,
+        isPlaying: fn (context: syncContextType) bool,
+    };
+}
 
-pub fn SyncDevice(comptime callbacks: IOCallbacks) type {
+pub fn SyncDevice(
+    comptime syncContextType: type,
+    comptime callbacks: SyncCallbacksTType(syncContextType),
+    comptime ioReaderType: type,
+    comptime ioProvider: IOCallbacksType(ioReaderType),
+) type {
     return struct {
         const Self = @This();
-        const ioCallbacks = callbacks;
+        const SyncContextType = syncContextType;
+        const IoReaderType = ioReaderType;
+        const syncCallbacks = callbacks;
+        const ioCallbacks = ioProvider;
 
         allocator: std.mem.Allocator,
         base: []const u8,
@@ -30,6 +40,9 @@ pub fn SyncDevice(comptime callbacks: IOCallbacks) type {
         socket: ?network.Socket,
         socketSet: ?network.SocketSet,
         //#endif
+
+        pub const SyncCallbacks = SyncCallbacksTType(syncContextType);
+        pub const IOCallbacks = IOCallbacksType(ioReaderType);
 
         pub fn init(allocator: std.mem.Allocator, base: []const u8) !Self {
             if (base.len == 0 or base[0] == '/') {
@@ -72,7 +85,7 @@ pub fn SyncDevice(comptime callbacks: IOCallbacks) type {
             allocator.free(device.base);
         }
 
-        pub fn update(device: *Self, row: u32, cb: *const SyncCallbacks, cb_param: *anyopaque) !void {
+        pub fn update(device: *Self, row: u32, cb_param: SyncContextType) !void {
             var socket = device.socket.?;
             var socketSet = device.socketSet.?;
             errdefer socket.close();
@@ -86,18 +99,18 @@ pub fn SyncDevice(comptime callbacks: IOCallbacks) type {
                     Commands.DELETE_KEY => handleDelKeyCmd(device),
                     Commands.SET_ROW => {
                         const newRow = try reader.readInt(u32, .Big);
-                        cb.setRow(cb_param, newRow);
+                        syncCallbacks.setRow(cb_param, newRow);
                     },
                     Commands.PAUSE => {
                         const flag = try reader.readInt(u8, .Big);
-                        cb.pause(cb_param, flag);
+                        syncCallbacks.pause(cb_param, flag);
                     },
                     Commands.SAVE_TRACKS => try syncSaveTracks(device),
                     else => @panic("Unknown command"),
                 };
             }
 
-            if (cb.isPlaying(cb_param)) {
+            if (syncCallbacks.isPlaying(cb_param)) {
                 if (device.row != row and device.socket != null) {
                     var writer = socket.writer();
                     try writer.writeByte(@enumToInt(Commands.SET_ROW));
@@ -137,12 +150,12 @@ pub fn SyncDevice(comptime callbacks: IOCallbacks) type {
         }
 
         fn readTrackData(d: *Self, t: *Track) !void {
-            _ = t;
-            _ = d;
             // var callbacks = d.ioCallbacks.?;
 
-            // const trackPath = try syncTrackPath(d.allocator, d.base, t.name);
-            // defer d.allocator.free(trackPath);
+            const trackPath = try syncTrackPath(d.allocator, d.base, t.name);
+            defer d.allocator.free(trackPath);
+
+            ioCallbacks.read(trackPath);
 
             // var reader = try callbacks.open(trackPath);
 
@@ -163,11 +176,11 @@ pub fn SyncDevice(comptime callbacks: IOCallbacks) type {
         }
 
         pub fn syncSaveTracks(d: *const Self) !void {
-            for (d.tracks) |t| {
-                const path = try syncTrackPath(d.allocator, d.base, t.name);
+            for (d.tracks) |track| {
+                const path = try syncTrackPath(d.allocator, d.base, track.name);
                 defer d.allocator.free(path);
 
-                try saveTrack(t, path);
+                try saveTrack(track, path);
             }
         }
 
@@ -187,13 +200,12 @@ pub fn SyncDevice(comptime callbacks: IOCallbacks) type {
             var trackIdx = try reader.readIntBig(u32);
             var row = try reader.readIntBig(u32);
             var floatAsInt = try reader.readIntBig(u32);
-            var keyType = try reader.readIntBig(u8);
-            var floatVal = @bitCast(f32, floatAsInt);
+            var keyType = try reader.readEnum(KeyType, .Big);
 
             var key: TrackKey = .{
                 .row = row,
-                .value = floatVal,
-                .type = @intToEnum(KeyType, keyType),
+                .value = @bitCast(f32, floatAsInt),
+                .type = keyType,
             };
 
             if (trackIdx >= device.tracks.len) {
@@ -394,7 +406,7 @@ fn saveTrack(t: *const Track, path: []const u8) !void {
     // 	return 0;
 }
 
-pub const KeyType = enum {
+pub const KeyType = enum(u8) {
     Step,
     Linear,
     Smooth,
@@ -410,7 +422,7 @@ pub const TrackKey = struct {
 pub const Track = struct {
     const Keys = std.ArrayList(TrackKey);
 
-    name: []u8,
+    name: []const u8,
     keys: Keys,
 
     inline fn keyIndexFloor(track: *const Track, row: u32) u32 {
@@ -422,14 +434,6 @@ pub const Track = struct {
         }
     }
 
-    //#ifndef SYNC_PLAYER
-    inline fn isKeyFrame(track: *const Track, row: u32) bool {
-        return track.findKey(row).found;
-    }
-
-    //#endif /* !defined(SYNC_PLAYER) */
-
-    // track.c
     fn keyLinear(keys: [2]TrackKey, row: f64) f64 {
         var t = (row - @intToFloat(f64, keys[0].row)) / @intToFloat(f64, keys[1].row - keys[0].row);
         return keys[0].value + (keys[1].value - keys[0].value) * t;

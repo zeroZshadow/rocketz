@@ -8,21 +8,13 @@ const bpm: f32 = 150.0; // beats per minute
 const rpb: i32 = 8; // rows per beat
 const row_rate: f64 = (@as(f64, bpm) / 60.0) * @intToFloat(f32, rpb);
 
-const callbacks: rocket.SyncCallbacks = .{
-    .pause = &pause,
-    .setRow = &setRow,
-    .isPlaying = &isPlaying,
-};
-
 fn getRow(stream: u32) f64 {
     const pos = bass.BASS_ChannelGetPosition(stream, bass.BASS_POS_BYTE);
     const time = bass.BASS_ChannelBytes2Seconds(stream, pos);
     return time * row_rate;
 }
 
-fn pause(ptr: *anyopaque, flag: i32) void {
-    var stream = @ptrCast(*u32, @alignCast(@alignOf(u32), ptr)).*;
-
+fn pause(stream: u32, flag: i32) void {
     if (flag != 0) {
         _ = bass.BASS_ChannelPause(stream);
     } else {
@@ -30,17 +22,21 @@ fn pause(ptr: *anyopaque, flag: i32) void {
     }
 }
 
-fn setRow(ptr: *anyopaque, row: u32) void {
-    var stream = @ptrCast(*u32, @alignCast(@alignOf(u32), ptr)).*;
-
+fn setRow(stream: u32, row: u32) void {
     var pos = bass.BASS_ChannelSeconds2Bytes(stream, @intToFloat(f64, row) / row_rate);
     _ = bass.BASS_ChannelSetPosition(stream, pos, bass.BASS_POS_BYTE);
 }
 
-fn isPlaying(ptr: *anyopaque) bool {
-    var stream = @ptrCast(*u32, @alignCast(@alignOf(u32), ptr)).*;
-
+fn isPlaying(stream: u32) bool {
     return bass.BASS_ChannelIsActive(stream) == bass.BASS_ACTIVE_PLAYING;
+}
+
+fn readTrackFile(name: []const u8, comptime loadTrack: fn (reader: std.fs.File.Reader) anyerror!void) void {
+    var file = std.fs.openFileAbsolute(name, .{}) orelse @panic("FS FAiL");
+    defer file.close();
+
+    var reader = file.reader();
+    try loadTrack(reader);
 }
 
 pub fn main() !void {
@@ -92,7 +88,18 @@ pub fn main() !void {
     defer _ = bass.BASS_StreamFree(stream);
 
     // Rocket init
-    var device = try rocket.SyncDevice(.{}).init(allocator, "sync");
+    var device = try rocket.SyncDevice(
+        u32,
+        .{
+            .pause = pause,
+            .setRow = setRow,
+            .isPlaying = isPlaying,
+        },
+        std.fs.File.Reader,
+        .{
+            .read = readTrackFile,
+        },
+    ).init(allocator, "sync");
     defer device.deinit();
     try device.connectTcp("localhost", 1338);
 
@@ -117,8 +124,7 @@ pub fn main() !void {
         var row = getRow(stream);
         try device.update(
             @floatToInt(u32, row),
-            &callbacks,
-            @ptrCast(*anyopaque, &stream),
+            stream,
         );
 
         const val_r = clear_r.getValue(row);
