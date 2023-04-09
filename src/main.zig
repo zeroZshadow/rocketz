@@ -31,9 +31,9 @@ fn isPlaying(stream: u32) bool {
     return bass.BASS_ChannelIsActive(stream) == bass.BASS_ACTIVE_PLAYING;
 }
 
-fn openTrackFile(name: []const u8) std.fs.File {
+fn openTrackFile(name: []const u8) anyerror!std.fs.File {
     const cwd = std.fs.cwd();
-    return cwd.openFile(name, .{}) catch @panic("FS FAiL");
+    return try cwd.openFile(name, .{});
 }
 
 fn closeTrackFile(file: std.fs.File) void {
@@ -106,9 +106,9 @@ pub fn main() !void {
             .close = closeTrackFile,
             .read = readTrackFile,
         },
-    ).init(allocator, "sync");
+    ).init(allocator, "demo/sync");
     defer device.deinit();
-    //try device.connectTcp("localhost", 1338);
+    try device.connectTcp("localhost", 1338);
 
     // Start app
     var clear_r = try device.getTrack("clear.r");

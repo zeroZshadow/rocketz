@@ -9,7 +9,7 @@ pub fn IOCallbacks(comptime syncContextType: type, comptime readerType: type) ty
         const Context = syncContextType;
         const Reader = readerType;
 
-        open: fn (name: []const u8) Context,
+        open: fn (name: []const u8) anyerror!Context,
         close: fn (context: Context) void,
         read: fn (context: Context) Reader,
     };
@@ -161,7 +161,7 @@ pub fn SyncDevice(
             const trackPath = try syncTrackPath(d.allocator, d.base, t.name);
             defer d.allocator.free(trackPath);
 
-            const context = ioCallbacks.open(trackPath);
+            const context = try ioCallbacks.open(trackPath);
             defer ioCallbacks.close(context);
 
             var reader = ioCallbacks.read(context);
@@ -354,20 +354,15 @@ const Commands = enum(u8) {
 
 // //#endif
 
-fn createLeadingDirs(path: []const u8) !std.fs.Dir {
+fn createLeadingDirs(path: []const u8) !void {
     const cwd = std.fs.cwd();
     if (std.fs.path.dirname(path)) |dirpath| {
-        return try cwd.makeOpenPath(dirpath, .{});
+        try cwd.makePath(dirpath);
     }
-    return cwd;
 }
 
 fn saveTrack(t: *const Track, path: []const u8) !void {
-    // 	int i;
-    // 	FILE *fp;
-
-    //var dir = try createLeadingDirs(path);
-    //defer dir.close();
+    try createLeadingDirs(path);
 
     const cwd = std.fs.cwd();
     var file = try cwd.createFile(path, .{});
