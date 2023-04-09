@@ -31,19 +31,6 @@ fn isPlaying(stream: u32) bool {
     return bass.BASS_ChannelIsActive(stream) == bass.BASS_ACTIVE_PLAYING;
 }
 
-fn openTrackFile(name: []const u8) anyerror!std.fs.File {
-    const cwd = std.fs.cwd();
-    return try cwd.openFile(name, .{});
-}
-
-fn closeTrackFile(file: std.fs.File) void {
-    file.close();
-}
-
-fn readTrackFile(file: std.fs.File) std.fs.File.Reader {
-    return file.reader();
-}
-
 pub fn main() !void {
     errdefer @breakpoint();
 
@@ -101,11 +88,7 @@ pub fn main() !void {
             .isPlaying = isPlaying,
         },
         rocket.IOCallbacks(std.fs.File, std.fs.File.Reader),
-        .{
-            .open = openTrackFile,
-            .close = closeTrackFile,
-            .read = readTrackFile,
-        },
+        rocket.FileIO.callbacks,
     ).init(allocator, "demo/sync");
     defer device.deinit();
     try device.connectTcp("localhost", 1338);

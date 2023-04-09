@@ -15,6 +15,27 @@ pub fn IOCallbacks(comptime syncContextType: type, comptime readerType: type) ty
     };
 }
 
+pub const FileIO = struct {
+    pub const callbacks: IOCallbacks(std.fs.File, std.fs.File.Reader) = .{
+        .open = openTrackFile,
+        .close = closeTrackFile,
+        .read = readTrackFile,
+    };
+
+    fn openTrackFile(name: []const u8) anyerror!std.fs.File {
+        const cwd = std.fs.cwd();
+        return try cwd.openFile(name, .{});
+    }
+
+    fn closeTrackFile(file: std.fs.File) void {
+        file.close();
+    }
+
+    fn readTrackFile(file: std.fs.File) std.fs.File.Reader {
+        return file.reader();
+    }
+};
+
 pub fn SyncCallbacks(comptime syncContextType: type) type {
     return struct {
         const Context = syncContextType;
