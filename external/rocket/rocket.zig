@@ -417,15 +417,6 @@ pub const Track = struct {
     name: []const u8,
     keys: Keys,
 
-    inline fn keyIndexFloor(track: *const Track, row: u32) u32 {
-        var result = track.findKey(row);
-        if (result.found) {
-            return result.index;
-        } else {
-            return result.index - 1;
-        }
-    }
-
     fn keyLinear(keys: [2]TrackKey, row: f64) f64 {
         var t = (row - @intToFloat(f64, keys[0].row)) / @intToFloat(f64, keys[1].row - keys[0].row);
         return keys[0].value + (keys[1].value - keys[0].value) * t;
@@ -444,28 +435,31 @@ pub const Track = struct {
     }
 
     pub fn getValue(track: *const Track, row: f64) f64 {
+        const keys = track.keys.items;
         // If we have no keys at all, return a constant 0
-        if (track.keys.items.len == 0) {
+        if (keys.len == 0) {
             return 0.0;
         }
 
         var irow = @floatToInt(u32, row);
-        var idx = keyIndexFloor(track, irow);
+        if (keys[0].row > irow) {
+            return 0.0;
+        }
+
+        var result = track.findKey(irow);
+        var idx = if (result.found) result.index else result.index - 1;
 
         // at the edges, return the first/last value
-        if (idx < 0) {
-            return track.keys.items[0].value;
-        }
-        if (track.keys.items[idx..].len < 2) {
-            return track.keys.items[track.keys.items.len - 1].value;
+        if (keys[idx..].len < 2) {
+            return keys[keys.len - 1].value;
         }
 
         // interpolate according to key-type
-        return switch (track.keys.items[idx].type) {
-            .Step => track.keys.items[idx].value,
-            .Linear => keyLinear(track.keys.items[idx..][0..2].*, row),
-            .Smooth => keySmooth(track.keys.items[idx..][0..2].*, row),
-            .Ramp => keyRamp(track.keys.items[idx..][0..2].*, row),
+        return switch (keys[idx].type) {
+            .Step => keys[idx].value,
+            .Linear => keyLinear(keys[idx..][0..2].*, row),
+            .Smooth => keySmooth(keys[idx..][0..2].*, row),
+            .Ramp => keyRamp(keys[idx..][0..2].*, row),
         };
     }
 
