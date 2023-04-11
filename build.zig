@@ -1,5 +1,5 @@
 const std = @import("std");
-const sdl_sdk = @import("external/sdl/Sdk.zig");
+const sdl = @import("sdl");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -26,9 +26,9 @@ pub fn build(b: *std.Build) void {
 
     exe.addModule("network", network_dep.module("network"));
 
-    const sdk = sdl_sdk.init(b, null);
-    sdk.link(exe, .dynamic);
-    exe.addModule("sdl2", sdk.getWrapperModule());
+    const sdl_sdk = sdl.init(b, null);
+    sdl_sdk.link(exe, .dynamic);
+    exe.addModule("sdl2", sdl_sdk.getWrapperModule());
 
     const bassTranslatedHeader = b.addTranslateC(.{
         .source_file = .{ .path = "external/bass/bass.h" },
