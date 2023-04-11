@@ -40,7 +40,15 @@ pub fn build(b: *std.Build) void {
         .source_file = .{ .generated = &bassTranslatedHeader.output_file },
     });
     exe.addLibraryPath("external/bass/libs/x86_64");
-    b.installLibFile("external/bass/libs/x86_64/libbass.so", "libbass.so");
+
+    const targetInfo = (std.zig.system.NativeTargetInfo.detect(target) catch @panic("failed to detect native target info!")).target;
+    if (targetInfo.os.tag == .linux) {
+        b.installLibFile("external/bass/libs/x86_64/libbass.so", "libbass.so");
+    } else if (targetInfo.os.tag == .windows) {
+        b.installBinFile("external/bass/libs/x86_64/bass.dll", "bass.dll");
+    } else {
+        @panic("OS not supported");
+    }
     exe.linkSystemLibrary("bass");
 
     exe.addModule("rocket", rocket);
