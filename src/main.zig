@@ -139,7 +139,15 @@ pub fn main() !void {
         NetworkIO.callbacks,
     ).init(allocator, "demo/sync");
     defer device.deinit();
-    try device.connect("localhost", 1338);
+    device.connect("localhost", 1338) catch |err| {
+        switch (err) {
+            error.CouldNotConnect => {
+                std.log.err("Failed to connect", .{});
+                return;
+            },
+            else => return err,
+        }
+    };
 
     // Start app
     var clear_r = try device.getTrack("clear.r");
