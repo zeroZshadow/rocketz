@@ -65,7 +65,6 @@ pub fn SyncDevice(
     comptime callbacks: syncCallbacksType,
     comptime ioCallbacksType: type,
     comptime ioProvider: ioCallbacksType,
-    comptime networkContextType: type,
     comptime networkCallbacksType: type,
     comptime networkProvider: networkCallbacksType,
 ) type {
@@ -82,7 +81,7 @@ pub fn SyncDevice(
 
         //#ifndef SYNC_PLAYER
         row: u32,
-        networkContext: ?networkContextType,
+        networkContext: ?networkCallbacksType.Context,
         //#endif
 
         const SyncCallbacks = syncCallbacksType;

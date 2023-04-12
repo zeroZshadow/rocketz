@@ -135,7 +135,6 @@ pub fn main() !void {
         },
         rocket.FileIO.Type,
         rocket.FileIO.callbacks,
-        NetworkContext,
         NetworkIO.Type,
         NetworkIO.callbacks,
     ).init(allocator, "demo/sync");
