@@ -1,28 +1,42 @@
 const std = @import("std");
-const network = @import("network");
 const os = std.os;
 const math = std.math;
 const assert = std.debug.assert;
 
-pub fn IOCallbacks(comptime syncContextType: type, comptime readerType: type) type {
+pub fn NetworkCallbacks(comptime contextType: type, comptime readerType: type, comptime writerType: type) type {
     return struct {
-        const Context = syncContextType;
+        const Context = contextType;
+        const Reader = readerType;
+        const Writer = writerType;
+
+        connect: fn (allocator: std.mem.Allocator, hostname: []const u8, port: u16) anyerror!Context,
+        close: fn (context: *Context) void,
+        read: fn (context: *Context) Reader,
+        write: fn (context: *Context) Writer,
+        poll: fn (context: *Context) anyerror!bool,
+    };
+}
+
+pub fn IOCallbacks(comptime contextType: type, comptime readerType: type) type {
+    return struct {
+        const Context = contextType;
         const Reader = readerType;
 
-        open: fn (name: []const u8) anyerror!Context,
+        open: fn (allocator: std.mem.Allocator, name: []const u8) anyerror!Context,
         close: fn (context: Context) void,
         read: fn (context: Context) Reader,
     };
 }
 
 pub const FileIO = struct {
-    pub const callbacks: IOCallbacks(std.fs.File, std.fs.File.Reader) = .{
+    pub const Type = IOCallbacks(std.fs.File, std.fs.File.Reader);
+    pub const callbacks: Type = .{
         .open = openTrackFile,
         .close = closeTrackFile,
         .read = readTrackFile,
     };
 
-    fn openTrackFile(name: []const u8) anyerror!std.fs.File {
+    fn openTrackFile(_: std.mem.Allocator, name: []const u8) anyerror!std.fs.File {
         const cwd = std.fs.cwd();
         return try cwd.openFile(name, .{});
     }
@@ -51,12 +65,16 @@ pub fn SyncDevice(
     comptime callbacks: syncCallbacksType,
     comptime ioCallbacksType: type,
     comptime ioProvider: ioCallbacksType,
+    comptime networkContextType: type,
+    comptime networkCallbacksType: type,
+    comptime networkProvider: networkCallbacksType,
 ) type {
     return struct {
         const Self = @This();
 
         const syncCallbacks = callbacks;
         const ioCallbacks = ioProvider;
+        const networkCallbacks = networkProvider;
 
         allocator: std.mem.Allocator,
         base: []const u8,
@@ -64,8 +82,7 @@ pub fn SyncDevice(
 
         //#ifndef SYNC_PLAYER
         row: u32,
-        socket: ?network.Socket,
-        socketSet: ?network.SocketSet,
+        networkContext: ?networkContextType,
         //#endif
 
         const SyncCallbacks = syncCallbacksType;
@@ -82,8 +99,7 @@ pub fn SyncDevice(
                 .tracks = &.{},
                 //#ifndef SYNC_PLAYER
                 .row = 0, //-1 ?
-                .socket = null,
-                .socketSet = null,
+                .networkContext = null,
                 //#endif
             };
 
@@ -100,11 +116,8 @@ pub fn SyncDevice(
             }
 
             //#ifndef SYNC_PLAYER
-            if (device.socket) |*s| {
-                s.close();
-            }
-            if (device.socketSet) |*s| {
-                s.deinit();
+            if (device.networkContext) |*context| {
+                networkCallbacks.close(context);
             }
             //#endif
 
@@ -113,16 +126,15 @@ pub fn SyncDevice(
         }
 
         pub fn update(device: *Self, row: u32, cb_param: Self.SyncCallbacks.Context) !void {
-            if (device.socket == null) {
+            if (device.networkContext == null) {
                 return;
             }
 
-            var socket = device.socket.?;
-            var socketSet = device.socketSet.?;
-            errdefer socket.close();
+            var networkContext = &device.networkContext.?;
+            errdefer networkCallbacks.close(networkContext);
 
-            while (try network.waitForSocketEvent(&socketSet, 0) != 0 and socketSet.isReadyRead(socket)) {
-                var reader = socket.reader();
+            while (try networkCallbacks.poll(networkContext)) {
+                var reader = networkCallbacks.read(networkContext);
                 const cmd = try reader.readEnum(Commands, .Big);
 
                 try switch (cmd) {
@@ -142,7 +154,7 @@ pub fn SyncDevice(
             }
 
             if (syncCallbacks.isPlaying(cb_param) and device.row != row) {
-                var writer = socket.writer();
+                var writer = networkCallbacks.write(networkContext);
                 try writer.writeByte(@enumToInt(Commands.SET_ROW));
                 try writer.writeIntBig(u32, row);
                 device.row = row;
@@ -159,7 +171,7 @@ pub fn SyncDevice(
 
             var t = try createTrack(device, name);
 
-            if (device.socket) |_| {
+            if (device.networkContext) |_| {
                 try fetchTrackData(device, t);
             } else {
                 try readTrackData(device, t);
@@ -182,7 +194,7 @@ pub fn SyncDevice(
             const trackPath = try syncTrackPath(d.allocator, d.base, t.name);
             defer d.allocator.free(trackPath);
 
-            const context = try ioCallbacks.open(trackPath);
+            const context = try ioCallbacks.open(d.allocator, trackPath);
             defer ioCallbacks.close(context);
 
             var reader = ioCallbacks.read(context);
@@ -210,8 +222,8 @@ pub fn SyncDevice(
         }
 
         fn fetchTrackData(device: *Self, t: *Track) !void {
-            if (device.socket) |socket| {
-                var writer = socket.writer();
+            if (device.networkContext) |*networkContext| {
+                var writer = networkCallbacks.write(networkContext);
                 try writer.writeByte(@enumToInt(Commands.GET_TRACK));
                 try writer.writeIntBig(u32, @truncate(u32, t.name.len));
                 try writer.writeAll(t.name);
@@ -219,9 +231,7 @@ pub fn SyncDevice(
         }
 
         fn handleSetKeyCmd(device: *Self) !void {
-            var socket = device.socket.?;
-
-            var reader = socket.reader();
+            var reader = networkCallbacks.read(&device.networkContext.?);
             var trackIdx = try reader.readIntBig(u32);
             var row = try reader.readIntBig(u32);
             var floatAsInt = try reader.readIntBig(u32);
@@ -241,9 +251,7 @@ pub fn SyncDevice(
         }
 
         fn handleDelKeyCmd(device: *Self) !void {
-            var socket = device.socket.?;
-
-            var reader = socket.reader();
+            var reader = networkCallbacks.read(&device.networkContext.?);
             var trackIdx = try reader.readIntBig(u32);
             var row = try reader.readIntBig(u32);
 
@@ -254,37 +262,30 @@ pub fn SyncDevice(
             return device.tracks[trackIdx].deleteKey(row);
         }
 
-        pub fn connectTcp(device: *Self, host: []const u8, port: u16) !void {
-            if (device.socket) |s| {
-                s.close();
-                device.socketSet.?.deinit();
+        pub fn connect(device: *Self, host: []const u8, port: u16) !void {
+            if (device.networkContext) |*context| {
+                networkCallbacks.close(context);
             }
 
-            device.socket = try network.connectToHost(device.allocator, host, port, .tcp);
-            errdefer device.socket.?.close();
-
-            device.socketSet = try network.SocketSet.init(device.allocator);
-            errdefer device.socketSet.?.deinit();
-
-            try device.socketSet.?.add(device.socket.?, .{
-                .read = true,
-                .write = false,
-            });
+            var networkContext = try networkCallbacks.connect(device.allocator, host, port);
+            errdefer networkCallbacks.close(&networkContext);
 
             // Handhshake
             const clientGreet: []const u8 = "hello, synctracker!";
             const serverGreet: []const u8 = "hello, demo!";
 
-            var writer = device.socket.?.writer();
+            var writer = networkCallbacks.write(&networkContext);
             try writer.writeAll(clientGreet);
 
             var greet: [serverGreet.len]u8 = undefined;
-            var reader = device.socket.?.reader();
+            var reader = networkCallbacks.read(&networkContext);
             _ = try reader.readAll(&greet);
 
             if (!std.mem.eql(u8, &greet, serverGreet)) {
                 return error.InvalidGreeting;
             }
+
+            device.networkContext = networkContext;
 
             // Destroy all old keys
             for (device.tracks) |t| {

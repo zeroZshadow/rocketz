@@ -9,12 +9,6 @@ pub fn build(b: *std.Build) void {
 
     const rocket = b.addModule("rocket", .{
         .source_file = .{ .path = "external/rocket/rocket.zig" },
-        .dependencies = &.{
-            .{
-                .name = "network",
-                .module = network_dep.module("network"),
-            },
-        },
     });
 
     const exe = b.addExecutable(.{

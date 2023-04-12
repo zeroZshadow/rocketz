@@ -31,6 +31,52 @@ fn isPlaying(stream: u32) bool {
     return bass.BASS_ChannelIsActive(stream) == bass.BASS_ACTIVE_PLAYING;
 }
 
+pub const NetworkContext = struct {
+    socket: network.Socket,
+    socketSet: network.SocketSet,
+};
+
+pub const NetworkIO = struct {
+    pub const Type = rocket.NetworkCallbacks(NetworkContext, network.Socket.Reader, network.Socket.Writer);
+    pub const callbacks: Type = .{
+        .connect = connect,
+        .close = close,
+        .read = read,
+        .write = write,
+        .poll = poll,
+    };
+
+    fn connect(allocator: std.mem.Allocator, hostname: []const u8, port: u16) anyerror!NetworkContext {
+        var socket = try network.connectToHost(allocator, hostname, port, .tcp);
+        errdefer socket.close();
+        var socketSet = try network.SocketSet.init(allocator);
+        errdefer socketSet.deinit();
+        try socketSet.add(socket, .{ .read = true, .write = false });
+
+        return .{
+            .socket = socket,
+            .socketSet = socketSet,
+        };
+    }
+
+    fn close(context: *NetworkContext) void {
+        context.socketSet.deinit();
+        context.socket.close();
+    }
+
+    fn read(context: *NetworkContext) network.Socket.Reader {
+        return context.socket.reader();
+    }
+
+    fn write(context: *NetworkContext) network.Socket.Writer {
+        return context.socket.writer();
+    }
+
+    fn poll(context: *NetworkContext) anyerror!bool {
+        return try network.waitForSocketEvent(&context.socketSet, 0) != 0 and context.socketSet.isReadyRead(context.socket);
+    }
+};
+
 pub fn main() !void {
     errdefer @breakpoint();
 
@@ -87,11 +133,14 @@ pub fn main() !void {
             .setRow = setRow,
             .isPlaying = isPlaying,
         },
-        rocket.IOCallbacks(std.fs.File, std.fs.File.Reader),
+        rocket.FileIO.Type,
         rocket.FileIO.callbacks,
+        NetworkContext,
+        NetworkIO.Type,
+        NetworkIO.callbacks,
     ).init(allocator, "demo/sync");
     defer device.deinit();
-    try device.connectTcp("localhost", 1338);
+    try device.connect("localhost", 1338);
 
     // Start app
     var clear_r = try device.getTrack("clear.r");
