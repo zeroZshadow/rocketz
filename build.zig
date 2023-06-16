@@ -47,16 +47,11 @@ pub fn build(b: *std.Build) void {
 
     exe.addModule("rocket", rocket);
 
-    exe.install();
+    b.installArtifact(exe);
+    var example_run_step = b.addRunArtifact(exe);
 
-    const run_cmd = exe.run();
-    run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
-
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+    const example_step = b.step("run", "Run example");
+    example_step.dependOn(&example_run_step.step);
 
     b.default_step.dependOn(&exe.step);
 }
