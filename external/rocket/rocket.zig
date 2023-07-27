@@ -154,7 +154,7 @@ pub fn SyncDevice(
 
             if (syncCallbacks.isPlaying(cb_param) and device.row != row) {
                 var writer = networkCallbacks.write(networkContext);
-                try writer.writeByte(@enumToInt(Commands.SET_ROW));
+                try writer.writeByte(@intFromEnum(Commands.SET_ROW));
                 try writer.writeIntBig(u32, row);
                 device.row = row;
             }
@@ -204,8 +204,8 @@ pub fn SyncDevice(
             for (0..keyCount) |idx| {
                 var key = TrackKey{
                     .row = try reader.readIntBig(u32),
-                    .value = @bitCast(f32, try reader.readIntBig(u32)),
-                    .type = @intToEnum(KeyType, try reader.readIntBig(u8)),
+                    .value = @as(f32, @bitCast(try reader.readIntBig(u32))),
+                    .type = @as(KeyType, @enumFromInt(try reader.readIntBig(u8))),
                 };
                 t.keys.insertAssumeCapacity(idx, key);
             }
@@ -223,8 +223,8 @@ pub fn SyncDevice(
         fn fetchTrackData(device: *Self, t: *Track) !void {
             if (device.networkContext) |*networkContext| {
                 var writer = networkCallbacks.write(networkContext);
-                try writer.writeByte(@enumToInt(Commands.GET_TRACK));
-                try writer.writeIntBig(u32, @truncate(u32, t.name.len));
+                try writer.writeByte(@intFromEnum(Commands.GET_TRACK));
+                try writer.writeIntBig(u32, @as(u32, @truncate(t.name.len)));
                 try writer.writeAll(t.name);
             }
         }
@@ -238,7 +238,7 @@ pub fn SyncDevice(
 
             var key: TrackKey = .{
                 .row = row,
-                .value = @bitCast(f32, floatAsInt),
+                .value = @as(f32, @bitCast(floatAsInt)),
                 .type = keyType,
             };
 
@@ -390,11 +390,11 @@ fn saveTrack(t: *const Track, path: []const u8) !void {
     defer file.close();
     var writer = file.writer();
 
-    try writer.writeIntBig(u32, @truncate(u32, t.keys.items.len));
+    try writer.writeIntBig(u32, @as(u32, @truncate(t.keys.items.len)));
     for (t.keys.items) |key| {
         try writer.writeIntBig(u32, key.row);
-        try writer.writeIntBig(u32, @bitCast(u32, key.value));
-        try writer.writeByte(@enumToInt(key.type));
+        try writer.writeIntBig(u32, @as(u32, @bitCast(key.value)));
+        try writer.writeByte(@intFromEnum(key.type));
     }
 }
 
@@ -418,18 +418,18 @@ pub const Track = struct {
     keys: Keys,
 
     fn keyLinear(keys: [2]TrackKey, row: f64) f64 {
-        var t = (row - @intToFloat(f64, keys[0].row)) / @intToFloat(f64, keys[1].row - keys[0].row);
+        var t = (row - @as(f64, @floatFromInt(keys[0].row))) / @as(f64, @floatFromInt(keys[1].row - keys[0].row));
         return keys[0].value + (keys[1].value - keys[0].value) * t;
     }
 
     fn keySmooth(keys: [2]TrackKey, row: f64) f64 {
-        var t = (row - @intToFloat(f64, keys[0].row)) / @intToFloat(f64, keys[1].row - keys[0].row);
+        var t = (row - @as(f64, @floatFromInt(keys[0].row))) / @as(f64, @floatFromInt(keys[1].row - keys[0].row));
         t = t * t * (3.0 - 2.0 * t);
         return keys[0].value + (keys[1].value - keys[0].value) * t;
     }
 
     fn keyRamp(keys: [2]TrackKey, row: f64) f64 {
-        var t = (row - @intToFloat(f64, keys[0].row)) / @intToFloat(f64, keys[1].row - keys[0].row);
+        var t = (row - @as(f64, @floatFromInt(keys[0].row))) / @as(f64, @floatFromInt(keys[1].row - keys[0].row));
         t = math.pow(f64, t, 2.0);
         return keys[0].value + (keys[1].value - keys[0].value) * t;
     }
@@ -441,7 +441,7 @@ pub const Track = struct {
             return 0.0;
         }
 
-        var irow = @floatToInt(u32, row);
+        var irow = @as(u32, @intFromFloat(row));
         if (keys[0].row > irow) {
             return 0.0;
         }
@@ -477,12 +477,12 @@ pub const Track = struct {
             } else if (t.keys.items[mi].row > row) {
                 hi = mi;
             } else {
-                return .{ .index = @truncate(u32, mi), .found = true }; // exact hit
+                return .{ .index = @as(u32, @truncate(mi)), .found = true }; // exact hit
             }
         }
         assert(lo == hi);
 
-        return .{ .index = @truncate(u32, lo), .found = false };
+        return .{ .index = @as(u32, @truncate(lo)), .found = false };
     }
 
     //#ifndef SYNC_PLAYER
