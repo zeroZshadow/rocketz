@@ -39,7 +39,7 @@ pub fn build(b: *std.Build) void {
     if (targetInfo.os.tag == .linux) {
         b.installLibFile("external/bass/libs/x86_64/libbass.so", "libbass.so");
     } else if (targetInfo.os.tag == .windows) {
-        b.installLibFile("external/bass/libs/x86_64/bass.dll", "bass.dll");
+        b.installBinFile("external/bass/libs/x86_64/bass.dll", "bass.dll");
     } else {
         @panic("OS not supported");
     }
@@ -49,6 +49,7 @@ pub fn build(b: *std.Build) void {
 
     b.installArtifact(exe);
     var example_run_step = b.addRunArtifact(exe);
+    example_run_step.step.dependOn(b.getInstallStep());
 
     const example_step = b.step("run", "Run example");
     example_step.dependOn(&example_run_step.step);
