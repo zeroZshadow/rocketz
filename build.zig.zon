@@ -3,12 +3,12 @@
     .version = "0.0.0",
     .dependencies = .{
         .sdl = .{
-            .url = "https://github.com/MasterQ32/SDL.zig/archive/6e8736936e6a5a93ff8535ee881a4a991206d0d2.tar.gz",
-            .hash = "12201aeffafaaa6766c4dd778037e54417c89afb2e44d93b96fd2076fb0ddd3995ed",
+            .url = "https://github.com/MasterQ32/SDL.zig/archive/dd46ee35ada7312a93a39fa1d18c14041e1dfd78.tar.gz",
+            .hash = "12202a0847d24f9c79302fff04e73d65a3342baecf0dfea46ac304eb68109ab6b472",
         },
         .network = .{
-            .url = "https://github.com/MasterQ32/zig-network/archive/f56ff29f31ad86b46814d3150fd8260b73e49af1.tar.gz",
-            .hash = "12200331c69c4d6ef55d942249d7e84f9881407091badb105c203ff7f8e6459fbd24",
+            .url = "https://github.com/MasterQ32/zig-network/archive/cdff53a2527598112a02b442045d4aef39a2e5e2.tar.gz",
+            .hash = "1220509b2da888b2d1ea452ed9d384134a754a940d1dc3865c87da7d224b89912b3d",
         },
     },
 }

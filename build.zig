@@ -33,7 +33,7 @@ pub fn build(b: *std.Build) void {
     exe.addAnonymousModule("bass", .{
         .source_file = .{ .generated = &bassTranslatedHeader.output_file },
     });
-    exe.addLibraryPath("external/bass/libs/x86_64");
+    exe.addLibraryPath(.{ .path = "external/bass/libs/x86_64" });
 
     const targetInfo = (std.zig.system.NativeTargetInfo.detect(target) catch @panic("failed to detect native target info!")).target;
     if (targetInfo.os.tag == .linux) {
