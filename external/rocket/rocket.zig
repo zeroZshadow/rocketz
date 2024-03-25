@@ -129,22 +129,22 @@ pub fn SyncDevice(
                 return;
             }
 
-            var networkContext = &device.networkContext.?;
+            const networkContext = &device.networkContext.?;
             errdefer networkCallbacks.close(networkContext);
 
             while (try networkCallbacks.poll(networkContext)) {
                 var reader = networkCallbacks.read(networkContext);
-                const cmd = try reader.readEnum(Commands, .Big);
+                const cmd = try reader.readEnum(Commands, .big);
 
                 try switch (cmd) {
                     Commands.SET_KEY => handleSetKeyCmd(device),
                     Commands.DELETE_KEY => handleDelKeyCmd(device),
                     Commands.SET_ROW => {
-                        const newRow = try reader.readInt(u32, .Big);
+                        const newRow = try reader.readInt(u32, .big);
                         syncCallbacks.setRow(cb_param, newRow);
                     },
                     Commands.PAUSE => {
-                        const flag = try reader.readInt(u8, .Big);
+                        const flag = try reader.readInt(u8, .big);
                         syncCallbacks.pause(cb_param, flag);
                     },
                     Commands.SAVE_TRACKS => try syncSaveTracks(device),
@@ -155,7 +155,7 @@ pub fn SyncDevice(
             if (syncCallbacks.isPlaying(cb_param) and device.row != row) {
                 var writer = networkCallbacks.write(networkContext);
                 try writer.writeByte(@intFromEnum(Commands.SET_ROW));
-                try writer.writeIntBig(u32, row);
+                try writer.writeInt(u32, row, .big);
                 device.row = row;
             }
         }
@@ -168,7 +168,7 @@ pub fn SyncDevice(
                 else => return err,
             }
 
-            var t = try createTrack(device, name);
+            const t = try createTrack(device, name);
 
             if (device.networkContext) |_| {
                 try fetchTrackData(device, t);
@@ -198,14 +198,14 @@ pub fn SyncDevice(
 
             var reader = ioCallbacks.read(context);
 
-            var keyCount = try reader.readIntBig(u32);
+            const keyCount = try reader.readInt(u32, .big);
             t.keys = try std.ArrayList(TrackKey).initCapacity(d.allocator, keyCount);
 
             for (0..keyCount) |idx| {
-                var key = TrackKey{
-                    .row = try reader.readIntBig(u32),
-                    .value = @as(f32, @bitCast(try reader.readIntBig(u32))),
-                    .type = @as(KeyType, @enumFromInt(try reader.readIntBig(u8))),
+                const key = TrackKey{
+                    .row = try reader.readInt(u32, .big),
+                    .value = @as(f32, @bitCast(try reader.readInt(u32, .big))),
+                    .type = @as(KeyType, @enumFromInt(try reader.readInt(u8, .big))),
                 };
                 t.keys.insertAssumeCapacity(idx, key);
             }
@@ -224,19 +224,19 @@ pub fn SyncDevice(
             if (device.networkContext) |*networkContext| {
                 var writer = networkCallbacks.write(networkContext);
                 try writer.writeByte(@intFromEnum(Commands.GET_TRACK));
-                try writer.writeIntBig(u32, @as(u32, @truncate(t.name.len)));
+                try writer.writeInt(u32, @as(u32, @truncate(t.name.len)), .big);
                 try writer.writeAll(t.name);
             }
         }
 
         fn handleSetKeyCmd(device: *Self) !void {
             var reader = networkCallbacks.read(&device.networkContext.?);
-            var trackIdx = try reader.readIntBig(u32);
-            var row = try reader.readIntBig(u32);
-            var floatAsInt = try reader.readIntBig(u32);
-            var keyType = try reader.readEnum(KeyType, .Big);
+            const trackIdx = try reader.readInt(u32, .big);
+            const row = try reader.readInt(u32, .big);
+            const floatAsInt = try reader.readInt(u32, .big);
+            const keyType = try reader.readEnum(KeyType, .big);
 
-            var key: TrackKey = .{
+            const key: TrackKey = .{
                 .row = row,
                 .value = @as(f32, @bitCast(floatAsInt)),
                 .type = keyType,
@@ -251,8 +251,8 @@ pub fn SyncDevice(
 
         fn handleDelKeyCmd(device: *Self) !void {
             var reader = networkCallbacks.read(&device.networkContext.?);
-            var trackIdx = try reader.readIntBig(u32);
-            var row = try reader.readIntBig(u32);
+            const trackIdx = try reader.readInt(u32, .big);
+            const row = try reader.readInt(u32, .big);
 
             if (trackIdx >= device.tracks.len) {
                 return error.OutOfRange;
@@ -344,8 +344,8 @@ fn pathEncode(allocator: std.mem.Allocator, path: []const u8) ![]const u8 {
         }
     }
 
-    var buffer = try allocator.alloc(u8, pos);
-    std.mem.copy(u8, buffer, tempBuffer[0..pos]);
+    const buffer = try allocator.alloc(u8, pos);
+    @memcpy(buffer, tempBuffer[0..pos]);
 
     return buffer;
 }
@@ -390,10 +390,10 @@ fn saveTrack(t: *const Track, path: []const u8) !void {
     defer file.close();
     var writer = file.writer();
 
-    try writer.writeIntBig(u32, @as(u32, @truncate(t.keys.items.len)));
+    try writer.writeInt(u32, @as(u32, @truncate(t.keys.items.len)), .big);
     for (t.keys.items) |key| {
-        try writer.writeIntBig(u32, key.row);
-        try writer.writeIntBig(u32, @as(u32, @bitCast(key.value)));
+        try writer.writeInt(u32, key.row, .big);
+        try writer.writeInt(u32, @as(u32, @bitCast(key.value)), .big);
         try writer.writeByte(@intFromEnum(key.type));
     }
 }
@@ -418,7 +418,7 @@ pub const Track = struct {
     keys: Keys,
 
     fn keyLinear(keys: [2]TrackKey, row: f64) f64 {
-        var t = (row - @as(f64, @floatFromInt(keys[0].row))) / @as(f64, @floatFromInt(keys[1].row - keys[0].row));
+        const t = (row - @as(f64, @floatFromInt(keys[0].row))) / @as(f64, @floatFromInt(keys[1].row - keys[0].row));
         return keys[0].value + (keys[1].value - keys[0].value) * t;
     }
 
@@ -441,13 +441,13 @@ pub const Track = struct {
             return 0.0;
         }
 
-        var irow = @as(u32, @intFromFloat(row));
+        const irow = @as(u32, @intFromFloat(row));
         if (keys[0].row > irow) {
             return 0.0;
         }
 
-        var result = track.findKey(irow);
-        var idx = if (result.found) result.index else result.index - 1;
+        const result = track.findKey(irow);
+        const idx = if (result.found) result.index else result.index - 1;
 
         // at the edges, return the first/last value
         if (keys[idx..].len < 2) {
@@ -469,7 +469,7 @@ pub const Track = struct {
 
         // binary search, t->keys is sorted by row
         while (lo < hi) {
-            var mi = (lo + hi) / 2;
+            const mi = (lo + hi) / 2;
             assert(mi != hi);
 
             if (t.keys.items[mi].row < row) {
@@ -497,7 +497,7 @@ pub const Track = struct {
     }
 
     pub fn deleteKey(track: *Track, pos: u32) !void {
-        var result = track.findKey(pos);
+        const result = track.findKey(pos);
         assert(result.found);
 
         _ = track.keys.orderedRemove(result.index);

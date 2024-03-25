@@ -23,7 +23,7 @@ fn pause(stream: u32, flag: i32) void {
 }
 
 fn setRow(stream: u32, row: u32) void {
-    var pos = bass.BASS_ChannelSeconds2Bytes(stream, @as(f64, @floatFromInt(row)) / row_rate);
+    const pos = bass.BASS_ChannelSeconds2Bytes(stream, @as(f64, @floatFromInt(row)) / row_rate);
     _ = bass.BASS_ChannelSetPosition(stream, pos, bass.BASS_POS_BYTE);
 }
 
@@ -119,7 +119,7 @@ pub fn main() !void {
     }
     defer _ = bass.BASS_Free();
 
-    var stream = bass.BASS_StreamCreateFile(0, "tune.ogg", 0, 0, bass.BASS_STREAM_PRESCAN);
+    const stream = bass.BASS_StreamCreateFile(0, "tune.ogg", 0, 0, bass.BASS_STREAM_PRESCAN);
     if (stream == 0) {
         return error.BassError;
     }
@@ -167,11 +167,11 @@ pub fn main() !void {
             }
         }
 
-        var row = getRow(stream);
-        try device.update(
+        const row = getRow(stream);
+        device.update(
             @as(u32, @intFromFloat(row)),
             stream,
-        );
+        ) catch return;
 
         const val_r = clear_r.getValue(row);
         const val_g = clear_g.getValue(row);

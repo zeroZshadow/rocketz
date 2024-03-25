@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
     const network_dep = b.dependency("network", .{});
 
     const rocket = b.addModule("rocket", .{
-        .source_file = .{ .path = "external/rocket/rocket.zig" },
+        .root_source_file = .{ .path = "external/rocket/rocket.zig" },
     });
 
     const exe = b.addExecutable(.{
@@ -18,11 +18,11 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    exe.addModule("network", network_dep.module("network"));
+    exe.root_module.addImport("network", network_dep.module("network"));
 
     const sdl_sdk = sdl.init(b, null);
     sdl_sdk.link(exe, .dynamic);
-    exe.addModule("sdl2", sdl_sdk.getWrapperModule());
+    exe.root_module.addImport("sdl2", sdl_sdk.getWrapperModule());
 
     const bassTranslatedHeader = b.addTranslateC(.{
         .source_file = .{ .path = "external/bass/bass.h" },
@@ -30,22 +30,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     exe.step.dependOn(&bassTranslatedHeader.step);
-    exe.addAnonymousModule("bass", .{
-        .source_file = .{ .generated = &bassTranslatedHeader.output_file },
+    exe.root_module.addAnonymousImport("bass", .{
+        .root_source_file = .{
+            .generated = &bassTranslatedHeader.output_file,
+        },
     });
     exe.addLibraryPath(.{ .path = "external/bass/libs/x86_64" });
 
-    const targetInfo = (std.zig.system.NativeTargetInfo.detect(target) catch @panic("failed to detect native target info!")).target;
-    if (targetInfo.os.tag == .linux) {
+    if (target.result.os.tag == .linux) {
         b.installLibFile("external/bass/libs/x86_64/libbass.so", "libbass.so");
-    } else if (targetInfo.os.tag == .windows) {
+    } else if (target.result.os.tag == .windows) {
         b.installBinFile("external/bass/libs/x86_64/bass.dll", "bass.dll");
     } else {
         @panic("OS not supported");
     }
     exe.linkSystemLibrary("bass");
 
-    exe.addModule("rocket", rocket);
+    exe.root_module.addImport("rocket", rocket);
 
     b.installArtifact(exe);
     var example_run_step = b.addRunArtifact(exe);
