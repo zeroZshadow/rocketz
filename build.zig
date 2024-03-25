@@ -25,7 +25,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addImport("sdl2", sdl_sdk.getWrapperModule());
 
     const bassTranslatedHeader = b.addTranslateC(.{
-        .source_file = .{ .path = "external/bass/bass.h" },
+        .root_source_file = .{ .path = "external/bass/bass.h" },
         .target = target,
         .optimize = optimize,
     });
