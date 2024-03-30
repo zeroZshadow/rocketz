@@ -1,41 +1,31 @@
 const std = @import("std");
-const sdl = @import("sdl");
+const mach = @import("mach");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
     const network_dep = b.dependency("network", .{});
-
-    const rocket = b.addModule("rocket", .{
-        .root_source_file = .{ .path = "external/rocket/rocket.zig" },
-    });
-
-    const exe = b.addExecutable(.{
-        .name = "zig-rocket",
-        .root_source_file = .{ .path = "src/main.zig" },
+    const mach_dep = b.dependency("mach", .{
         .target = target,
         .optimize = optimize,
+
+        //Parts
+        .core = true,
     });
 
-    exe.root_module.addImport("network", network_dep.module("network"));
-
-    const sdl_sdk = sdl.init(b, null);
-    sdl_sdk.link(exe, .dynamic);
-    exe.root_module.addImport("sdl2", sdl_sdk.getWrapperModule());
+    const rocket_module = b.addModule("rocket", .{
+        .root_source_file = .{ .path = "external/rocket/rocket.zig" },
+    });
 
     const bassTranslatedHeader = b.addTranslateC(.{
         .root_source_file = .{ .path = "external/bass/bass.h" },
         .target = target,
         .optimize = optimize,
     });
-    exe.step.dependOn(&bassTranslatedHeader.step);
-    exe.root_module.addAnonymousImport("bass", .{
-        .root_source_file = .{
-            .generated = &bassTranslatedHeader.output_file,
-        },
-    });
-    exe.addLibraryPath(.{ .path = "external/bass/libs/x86_64" });
+
+    const bass_module = bassTranslatedHeader.addModule("bass");
+    bass_module.addLibraryPath(.{ .path = "external/bass/libs/x86_64" });
 
     if (target.result.os.tag == .linux) {
         b.installLibFile("external/bass/libs/x86_64/libbass.so", "libbass.so");
@@ -44,16 +34,26 @@ pub fn build(b: *std.Build) void {
     } else {
         @panic("OS not supported");
     }
-    exe.linkSystemLibrary("bass");
 
-    exe.root_module.addImport("rocket", rocket);
+    // Demo
+    const app = try mach.CoreApp.init(b, mach_dep.builder, .{
+        .name = "zig-rocket",
+        .src = "src/app.zig",
+        .target = target,
+        .optimize = optimize,
+        .deps = &[_]std.Build.Module.Import{
+            .{ .name = "network", .module = network_dep.module("network") },
+            .{ .name = "rocket", .module = rocket_module },
+            .{ .name = "bass", .module = bass_module },
+        },
+        .res_dirs = &[_][]const u8{
+            "res",
+        },
+    });
+    app.compile.linkSystemLibrary("bass");
 
-    b.installArtifact(exe);
-    var example_run_step = b.addRunArtifact(exe);
-    example_run_step.step.dependOn(b.getInstallStep());
+    if (b.args) |args| app.run.addArgs(args);
 
-    const example_step = b.step("run", "Run example");
-    example_step.dependOn(&example_run_step.step);
-
-    b.default_step.dependOn(&exe.step);
+    const run_step = b.step("run", "Run the app");
+    run_step.dependOn(&app.run.step);
 }
